@@ -193,6 +193,7 @@ const StaggeredText = ({ text, delay = 0 }: { text: string; delay?: number }) =>
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       whileInView={{ opacity: 1, x: 0 }}
+      viewport={{ once: true }}
       transition={{ duration: 0.5, delay }}
       className="flex items-center gap-3 text-lg md:text-2xl text-white/80 font-medium justify-center"
     >
@@ -276,8 +277,8 @@ const FixedQRCode = ({ url, theme }: { url: string, theme: Theme }) => (
 const PremiumPresentation = ({ theme: globalTheme }: { theme: Theme }) => {
   const [current, setCurrent] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [direction, setDirection] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Interaction states
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -301,42 +302,51 @@ const PremiumPresentation = ({ theme: globalTheme }: { theme: Theme }) => {
     return () => document.removeEventListener('fullscreenchange', handleFsChange);
   }, []);
 
-  const next = () => {
-    setDirection(1);
-    setCurrent(p => (p + 1) % SLIDES.length);
+  const scrollToSlide = (index: number) => {
+    if (scrollContainerRef.current) {
+      const slideHeight = scrollContainerRef.current.clientHeight;
+      scrollContainerRef.current.scrollTo({
+        top: index * slideHeight,
+        behavior: 'smooth'
+      });
+    }
   };
+
+  const next = () => {
+    const nextIdx = (current + 1) % SLIDES.length;
+    setCurrent(nextIdx);
+    scrollToSlide(nextIdx);
+  };
+  
   const prev = () => {
-    setDirection(-1);
-    setCurrent(p => (p - 1 + SLIDES.length) % SLIDES.length);
+    const prevIdx = (current - 1 + SLIDES.length) % SLIDES.length;
+    setCurrent(prevIdx);
+    scrollToSlide(prevIdx);
   };
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === ' ') next();
-      if (e.key === 'ArrowLeft') prev();
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        next();
+      }
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        prev();
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, []);
+  }, [current]);
 
-  const slideVariants: Variants = {
-    enter: (direction: number) => ({
-      x: direction > 0 ? '100%' : '-100%',
-      opacity: 0,
-      scale: 0.95
-    }),
-    center: {
-      x: 0,
-      opacity: 1,
-      scale: 1,
-      transition: { duration: 0.5, ease: "easeOut" }
-    },
-    exit: (direction: number) => ({
-      x: direction < 0 ? '100%' : '-100%',
-      opacity: 0,
-      scale: 1.05,
-      transition: { duration: 0.4, ease: "easeIn" }
-    })
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    const slideHeight = container.clientHeight;
+    if (slideHeight === 0) return;
+    const newIdx = Math.round(container.scrollTop / slideHeight);
+    if (newIdx !== current && newIdx >= 0 && newIdx < SLIDES.length) {
+      setCurrent(newIdx);
+    }
   };
 
   const renderInteraction = (slideId: number) => {
@@ -384,8 +394,9 @@ const PremiumPresentation = ({ theme: globalTheme }: { theme: Theme }) => {
               <motion.div
                 key={tool.name}
                 initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.8 + i * 0.1 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.2 + i * 0.1 }}
                 whileHover={{ scale: 1.02 }}
                 onClick={() => setActiveTool(tool.name === activeTool ? null : tool.name)}
                 className={`p-6 rounded-3xl border-2 cursor-pointer transition-all ${
@@ -513,14 +524,11 @@ const PremiumPresentation = ({ theme: globalTheme }: { theme: Theme }) => {
     }
   };
 
-  const slide = SLIDES[current];
-  const Icon = slide.icon;
-
   return (
     <div 
       ref={containerRef}
-      className={`relative w-full overflow-hidden transition-all duration-700 shadow-[0_50px_100px_rgba(0,0,0,0.5)] flex flex-col ${
-        isFullscreen ? 'h-screen rounded-none' : 'aspect-video min-h-[600px] md:min-h-[700px] rounded-[3rem]'
+      className={`relative w-full transition-all duration-700 shadow-[0_50px_100px_rgba(0,0,0,0.5)] flex flex-col ${
+        isFullscreen ? 'h-screen w-screen rounded-none fixed inset-0 z-[200]' : 'aspect-video min-h-[600px] md:min-h-[700px] rounded-[3rem] overflow-hidden'
       } bg-gradient-to-br from-black via-[#041a0d] to-black border-2 border-white/10`}
     >
       {/* Background Decor */}
@@ -535,7 +543,7 @@ const PremiumPresentation = ({ theme: globalTheme }: { theme: Theme }) => {
           <motion.div 
             animate={{ rotate: [0, 10, -10, 0] }}
             transition={{ repeat: Infinity, duration: 4 }}
-            className={`p-2 rounded-xl bg-white/10 border border-white/10 ${slide.accent}`}
+            className={`p-2 rounded-xl bg-white/10 border border-white/10 ${SLIDES[current].accent}`}
           >
             <BookOpen className="w-5 h-5" />
           </motion.div>
@@ -547,7 +555,7 @@ const PremiumPresentation = ({ theme: globalTheme }: { theme: Theme }) => {
         <div className="flex items-center gap-4">
           <Badge className="bg-amber-400 text-black font-black border-none px-4 py-1.5 rounded-full">
             Slide {current + 1} of {SLIDES.length}
-          </Badge>\
+          </Badge>
           <Button 
             variant="ghost" 
             size="icon" 
@@ -559,103 +567,106 @@ const PremiumPresentation = ({ theme: globalTheme }: { theme: Theme }) => {
         </div>
       </div>
 
-      {/* Slide Area */}
-      <div className="flex-1 relative overflow-hidden flex items-center justify-center p-6 md:p-12">
-        <AnimatePresence mode="wait" custom={direction}>
-          <motion.div
-            key={current}
-            custom={direction}
-            variants={slideVariants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            className="w-full max-w-5xl flex flex-col items-center justify-center gap-8 text-center"
+      {/* Slide Area - Scroll Snapping Container */}
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto scroll-smooth no-scrollbar"
+        style={{ scrollSnapType: 'y mandatory', WebkitOverflowScrolling: 'touch' }}
+      >
+        {SLIDES.map((slide, idx) => (
+          <section 
+            key={slide.id}
+            className="w-full flex flex-col items-center justify-center p-6 md:p-12 relative shrink-0"
+            style={{ scrollSnapAlign: 'start', height: '100%' }}
           >
-            {/* Title Fade-in */}
-            <motion.h3 
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2, duration: 0.6 }}
-              className="text-5xl md:text-8xl font-black text-white leading-none tracking-tighter"
-            >
-              {slide.title}
-            </motion.h3>
-
-            {/* Highlight Glow */}
-            <motion.p 
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.4, duration: 0.5 }}
-              className="text-xl md:text-3xl font-bold bg-amber-400 text-black px-8 py-3 rounded-2xl inline-block shadow-[0_0_40px_rgba(251,191,36,0.2)]"
-            >
-              {slide.highlight}
-            </motion.p>
-
-            {/* Visual Icon Animation */}
-            <motion.div 
-              initial={{ scale: 0, rotate: -30 }}
-              animate={{ scale: 1, rotate: 0 }}
-              transition={{ type: "spring", damping: 10, stiffness: 80, delay: 0.5 }}
-              className={`p-8 rounded-full bg-white/5 border border-white/10 shadow-2xl mb-4 ${slide.accent}`}
-            >
-              <motion.div
-                animate={{ y: [0, -10, 0] }}
-                transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
+            <div className="w-full max-w-5xl flex flex-col items-center justify-center gap-8 text-center">
+              {/* Title Fade-in */}
+              <motion.h3 
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.6 }}
+                className="text-5xl md:text-8xl font-black text-white leading-none tracking-tighter"
               >
-                <Icon size={80} className="md:w-24 md:h-24" />
+                {slide.title}
+              </motion.h3>
+
+              {/* Highlight Glow */}
+              <motion.p 
+                initial={{ opacity: 0, scale: 0.9 }}
+                whileInView={{ opacity: 1, scale: 1 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.5 }}
+                className="text-xl md:text-3xl font-bold bg-amber-400 text-black px-8 py-3 rounded-2xl inline-block shadow-[0_0_40px_rgba(251,191,36,0.2)]"
+              >
+                {slide.highlight}
+              </motion.p>
+
+              {/* Visual Icon Animation */}
+              <motion.div 
+                initial={{ scale: 0, rotate: -30 }}
+                whileInView={{ scale: 1, rotate: 0 }}
+                viewport={{ once: true }}
+                transition={{ type: "spring", damping: 10, stiffness: 80 }}
+                className={`p-8 rounded-full bg-white/5 border border-white/10 shadow-2xl mb-4 ${slide.accent}`}
+              >
+                <motion.div
+                  animate={{ y: [0, -10, 0] }}
+                  transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
+                >
+                  <slide.icon size={80} className="md:w-24 md:h-24" />
+                </motion.div>
               </motion.div>
-            </motion.div>
 
-            {/* Body Staggered Reveal */}
-            <div className="space-y-4 max-w-2xl w-full">
-              {slide.body.map((line, i) => (
-                <StaggeredText key={i} text={line} delay={0.6 + i * 0.15} />
-              ))}
+              {/* Body Staggered Reveal */}
+              <div className="space-y-4 max-w-2xl w-full">
+                {slide.body.map((line, i) => (
+                  <StaggeredText key={i} text={line} delay={0.2 + i * 0.1} />
+                ))}
+              </div>
+
+              {/* Example Box */}
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.5 }}
+                className="mt-4 p-6 rounded-3xl bg-white/5 border border-white/10 flex items-center gap-4 text-left max-w-md group"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-amber-400/20 flex items-center justify-center shrink-0">
+                  <Lightbulb className="w-6 h-6 text-amber-400" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-400/60 mb-1">EXAMPLE</p>
+                  <p className="text-white/90 font-medium leading-tight">{slide.example}</p>
+                </div>
+              </motion.div>
+
+              {/* Interaction Layer */}
+              <div className="w-full">
+                {renderInteraction(slide.id)}
+              </div>
             </div>
-
-            {/* Example Box */}
-            <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1.2 }}
-              className="mt-4 p-6 rounded-3xl bg-white/5 border border-white/10 flex items-center gap-4 text-left max-w-md group"
-            >
-              <div className="w-12 h-12 rounded-2xl bg-amber-400/20 flex items-center justify-center shrink-0">
-                <Lightbulb className="w-6 h-6 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-amber-400/60 mb-1">EXAMPLE</p>
-                <p className="text-white/90 font-medium leading-tight">{slide.example}</p>
-              </div>
-            </motion.div>
-
-            {/* Interaction Layer */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1.4 }}
-              className="w-full"
-            >
-              {renderInteraction(slide.id)}
-            </motion.div>
-          </motion.div>
-        </AnimatePresence>
+          </section>
+        ))}
       </div>
 
       {/* Nav Controls */}
-      <div className="absolute inset-x-0 bottom-12 flex justify-between px-12 z-20">
+      <div className="absolute inset-x-0 bottom-12 flex justify-between px-12 z-20 pointer-events-none">
         <Button 
           variant="ghost" 
           size="icon" 
-          onClick={prev}
-          className="w-14 h-14 rounded-full bg-white/5 hover:bg-white/10 text-white border border-white/10"
+          onClick={(e) => { e.stopPropagation(); prev(); }}
+          className="w-14 h-14 rounded-full bg-white/5 hover:bg-white/10 text-white border border-white/10 pointer-events-auto"
         >
           <ChevronLeft className="w-8 h-8" />
         </Button>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center pointer-events-auto">
           {SLIDES.map((_, i) => (
-            <div 
+            <button 
               key={i} 
+              onClick={() => scrollToSlide(i)}
               className={`h-2 rounded-full transition-all duration-500 ${i === current ? 'w-10 bg-amber-400' : 'w-2 bg-white/20'}`} 
             />
           ))}
@@ -663,8 +674,8 @@ const PremiumPresentation = ({ theme: globalTheme }: { theme: Theme }) => {
         <Button 
           variant="ghost" 
           size="icon" 
-          onClick={next}
-          className="w-14 h-14 rounded-full bg-amber-400 hover:bg-amber-300 text-black shadow-lg"
+          onClick={(e) => { e.stopPropagation(); next(); }}
+          className="w-14 h-14 rounded-full bg-amber-400 hover:bg-amber-300 text-black shadow-lg pointer-events-auto"
         >
           <ChevronRight className="w-8 h-8" />
         </Button>
@@ -676,7 +687,15 @@ const PremiumPresentation = ({ theme: globalTheme }: { theme: Theme }) => {
 // --- Main Application ---
 
 export default function App() {
-  const [theme, setTheme] = useState<Theme>('light');
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('app-theme');
+      if (saved) return saved as Theme;
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+    }
+    return 'light';
+  });
+  
   const [mission, setMission] = useState<Mission | null>(null);
   const [submissions, setSubmissions] = useState<Project[]>([]);
   const [isRecording, setIsRecording] = useState(false);
@@ -696,12 +715,25 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    document.documentElement.classList.remove('light', 'dark', 'projection');
-    document.documentElement.classList.add(theme);
+    const root = document.documentElement;
+    root.classList.remove('light', 'dark', 'projection');
+    root.classList.add(theme);
+    localStorage.setItem('app-theme', theme);
+
+    // Apply specific CSS variables requested with smooth transitions
+    // We update the root variables which are used in the style tag below
     if (theme === 'projection') {
-      document.body.style.backgroundColor = '#000000';
+      root.style.setProperty('--primary-color', '#facc15');
+      root.style.setProperty('--background-color', '#000000');
+      root.style.setProperty('--text-color', '#facc15');
+    } else if (theme === 'dark') {
+      root.style.setProperty('--primary-color', 'oklch(0.922 0 0)');
+      root.style.setProperty('--background-color', 'oklch(0.145 0 0)');
+      root.style.setProperty('--text-color', 'oklch(0.985 0 0)');
     } else {
-      document.body.style.backgroundColor = '';
+      root.style.setProperty('--primary-color', 'oklch(0.205 0 0)');
+      root.style.setProperty('--background-color', 'oklch(1 0 0)');
+      root.style.setProperty('--text-color', 'oklch(0.145 0 0)');
     }
   }, [theme]);
 
@@ -749,6 +781,25 @@ export default function App() {
     <div className={`min-h-screen font-sans pb-16 transition-colors duration-500 selection:bg-amber-200 selection:text-amber-900 ${
       theme === 'projection' ? 'bg-black text-white' : theme === 'dark' ? 'bg-slate-950 text-slate-100' : 'bg-[#FDFDFD] text-slate-900'
     }`}>
+      <style>{`
+        :root {
+          --primary-color: oklch(0.205 0 0);
+          --background-color: oklch(1 0 0);
+          --text-color: oklch(0.145 0 0);
+        }
+        html, body {
+          background-color: var(--background-color) !important;
+          color: var(--text-color) !important;
+          transition: background-color 0.5s ease, color 0.5s ease, border-color 0.5s ease;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+        .no-scrollbar {
+          -ms-overflow-style: none;
+          scrollbar-width: none;
+        }
+      `}</style>
       <Toaster position="top-center" richColors />
       <FixedQRCode url={HUB_URL} theme={theme} />
       
@@ -810,7 +861,7 @@ export default function App() {
       <main className="max-w-6xl mx-auto px-4 md:px-6 -mt-16 space-y-16 relative z-20">
         
         {/* Presentation Section */}
-        <section>
+        <section id="training-manual">
           <PremiumPresentation theme={theme} />
         </section>
 
